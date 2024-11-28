@@ -124,7 +124,8 @@ logical_table %>%
     digits = 2,  # Number of decimal places for proportions
     col.names = c("Variable", "Value", "Count", "Proportion")  # Rename columns for clarity
   )
-# Generate descriptive statistics (NAs) for logical variables.
+
+# Generate descriptive statistics (NAs) for date variables.
 which(sapply(working, inherits, "Date"))
 date_variables <- c(2,35)
 date_table <- working %>%
