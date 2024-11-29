@@ -1,7 +1,6 @@
 # BTC1877 Team Project
 
 #### Preparation ####
-
 # Install and load packages.
 install.packages("readxl")
 install.packages("funModeling")
@@ -206,4 +205,255 @@ status(working)
 which(is.na(working$`Duration of ICU Stay (days)`))
 working <- working[-85,]
 
-#### Data Analysis ####
+#### Question 1 ####
+# Creating a new data set for classification.
+# Adding an "RBC Transfusion" column to the data frame:
+
+#If "Total 24hr RBC" value was greater than 0, indicate it as 1 (for transfusion), if its 0, then indicate it as 0 (no transfusion)
+working_class <- working %>%
+  mutate(
+    RBC_Transfusion = if_else(`Total 24hr RBC` > 0, 1, 0))
+
+#Converting the variable I just created to factor
+working_class$RBC_Transfusion <- as.factor(working_class$RBC_Transfusion)
+
+#Converting logical(TRUE/FALSE) to factors
+working_class <- working_class %>%
+  mutate_if(is.logical, as.factor)
+
+#selecting the predictors were focusing on, including the outcome
+working_class <- working_class %>%
+  select(
+    RBC_Transfusion, Type, `Gender (male)`, Age, BMI, COPD,
+    `alpha1-Antitrypsin Deficiency`, `Cystic Fibrosis`,
+    `Idiopathic Pulmonary Hypertension`, `Interstitial Lung Disease`,
+    `First Lung Transplant`, `Redo Lung Transplant`, `Preoperative ECLS`,
+    `LAS score`, Pre_Hb, Pre_Hct, Pre_Platelets, Pre_PT, Pre_INR, Pre_PTT, ECLS_ECMO, ECLS_CPB
+  ) %>%
+  rename_with(~ gsub(" ", "_", .x))
+
+#renaming potential problematic columns
+working_class <- working_class %>%
+  rename(alpha1_Antitrypsin_Deficiency = `alpha1-Antitrypsin_Deficiency`)
+
+colnames(working_class) <- gsub("[^A-Za-z0-9_]", "_", colnames(working_class))
+
+
+library(glmnet)
+library(pROC) 
+library(tree) 
+
+### Creating a LASSO model for classification ###
+
+set.seed(65)
+
+train_1 <- sample(nrow(working_class),round(nrow(working_class)/2))
+
+#created a vector with predictor features
+#excluded the first column as it corresponds to the intercept and it is always 1
+x1 <- model.matrix(RBC_Transfusion ~.,working_class)[train_1,-1]
+
+#created a vector with the response values
+y1 <- working_class$RBC_Transfusion[train_1]
+
+#creating lasso model, binomial family
+lasso_model1 <- glmnet(x1,y1,family="binomial")
+
+#plotting lambda vs coefficient weight plot 
+plot(lasso_model1,label = T, xvar = "lambda")
+
+#Using cross validation to tune the model 
+cv_lasso1 <- cv.glmnet(x1,y1,alpha=1,family = "binomial", type.measure = "auc", nfolds = 10)
+
+plot(cv_lasso1)
+#Lambda that maximizes the AUC for this model 
+cv_lasso1$lambda.min
+
+#Extract coefficients
+coef_min1 <- coef(cv_lasso1, s = "lambda.min")
+coef_min1
+coef(cv_lasso1, s = "lambda.1se")
+
+#testing in the test set
+
+pred_lasso1 <- as.numeric(predict(lasso_model1, newx = model.matrix(RBC_Transfusion ~.,working_class)[-train_1,-1], s=cv_lasso1$lambda.1se, type = "response"))
+
+
+
+#plotting the ROC curve
+myroc1 <- roc(RBC_Transfusion ~ pred_lasso1, data=working_class[-train_1,])
+
+plot(myroc1)
+
+# extracting the Area Under the Curve, a measure of discrimination
+auc.lasso1 <- myroc1$auc
+auc.lasso1
+
+
+#Making a loop to compare the performance of lasso and pruned tree models. This will help decide which model to go, by assessing and testing the models performances. 
+
+#Making a data frame to store AUC values for each model within each iteration
+auc_table <- data.frame(
+  Iteration = integer(),
+  AUC_LASSO = numeric(),
+  AUC_Pruned_Tree = numeric()
+)
+
+#Loop to repeat the process 5 times with different seeds set for each time
+for (i in 1:5) {
+  # Different seed for each iteration
+  set.seed(60 + i)
+  
+  #Splitting the data into training and test sets
+  train_data <- sample(nrow(working_class), round(nrow(working_class) / 2))
+  
+  # Creating predictor matrix and response vector for the LASSO model
+  x_train <- model.matrix(RBC_Transfusion ~ ., working_class)[train_data, -1]
+  y_train <- working_class$RBC_Transfusion[train_data]
+  
+  # LASSO model 
+  # Fitting the LASSO model
+  lasso_model <- glmnet(x_train, y_train, family = "binomial")
+  
+  # Cross-validation for lambda selection
+  cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1, family = "binomial", type.measure = "auc", nfolds = 10)
+  optimal_lambda <- cv_lasso$lambda.1se
+  
+  # Predict using the test set
+  pred_lasso <- predict(lasso_model, newx = model.matrix(RBC_Transfusion ~ ., working_class)[-train_data, -1], s = optimal_lambda, type = "response")
+  
+  # Calculating AUC for LASSO
+  roc_lasso <- roc(working_class$RBC_Transfusion[-train_data], as.numeric(pred_lasso))
+  auc_lasso <- roc_lasso$auc
+  
+  # CART
+  # Making a classification tree
+  tree_model <- tree(RBC_Transfusion ~ ., data = working_class, subset = train_data)
+  
+  #Cross-validation for pruning
+  cv_res <- cv.tree(tree_model, FUN = prune.tree)
+  
+  #Determining the best size of the tree based on minimum deviance
+  best_size <- cv_res$size[which.min(cv_res$dev)]
+  
+  best_size <- ifelse(
+    best_size == 1, 2,
+    best_size
+  )
+  
+  # Prune the tree using the best size
+  pruned_tree <- prune.tree(tree_model, best = best_size)
+  
+  
+  
+  # Predicting on the test set for the pruned tree
+  preds_pruned <- predict(pruned_tree, newdata = working_class[-train_data, ], type = "vector")
+  pred_probs_pruned <- as.numeric(preds_pruned[, 2])
+  
+  # Calculating AUC for pruned tree
+  roc_pruned_tree <- roc(working_class$RBC_Transfusion[-train_data], pred_probs_pruned)
+  auc_pruned_tree <- roc_pruned_tree$auc
+  
+  # Updating the AUC values from each model to the table created earlier (outside the loop)
+  auc_table <- rbind(
+    auc_table,
+    data.frame(
+      Iteration = i,
+      AUC_LASSO = auc_lasso,
+      AUC_Pruned_Tree = auc_pruned_tree
+    )
+  )
+}
+
+# Printing result table with AUC values
+print(auc_table)
+
+#highest AUC value was for the AUC of the LASSO model at iteration 5 (seed = 15)
+
+
+
+#Part 2 of Question 1: We want to look at the amount of RBCs in transfusions
+
+#Converting logical(TRUE/FALSE) to factors
+working_cont <- working %>%
+  mutate_if(is.logical, as.factor)
+
+#Response stays the same, we are using the same predictor set 
+#selecting the predictors were focusing on, including the outcome
+working_cont <- working_cont %>%
+  select(
+    `Total 24hr RBC`, Type, `Gender (male)`, Age, BMI, COPD,
+    `alpha1-Antitrypsin Deficiency`, `Cystic Fibrosis`,
+    `Idiopathic Pulmonary Hypertension`, `Interstitial Lung Disease`,
+    `First Lung Transplant`, `Redo Lung Transplant`, `Preoperative ECLS`,
+    `LAS score`, Pre_Hb, Pre_Hct, Pre_Platelets, Pre_PT, Pre_INR, Pre_PTT, ECLS_ECMO, ECLS_CPB
+  ) %>%
+  rename_with(~ gsub(" ", "_", .x))
+
+#renaming potential problematic columns
+working_cont <- working_cont %>%
+  rename(alpha1_Antitrypsin_Deficiency = `alpha1-Antitrypsin_Deficiency`)
+
+colnames(working_cont) <- gsub("[^A-Za-z0-9_]", "_", colnames(working_cont))
+
+
+
+### Creating Regression LASSO ###
+
+set.seed(65)
+
+train_2 <- sample(nrow(working_cont),round(nrow(working_cont)/2))
+
+#created a vector with predictor features
+#excluded the first column as it corresponds to the intercept and it is always 1
+x2 <- model.matrix(Total_24hr_RBC ~.,working_cont)[train_2,-1]
+
+#created a vector with the response values
+y2 <- working_cont$Total_24hr_RBC[train_2]
+
+#creating lasso model, binomial family
+lasso_model2 <- glmnet(x2,y2,family="gaussian")
+
+#plotting lambda vs coefficient weight plot 
+plot(lasso_model2,label = T, xvar = "lambda")
+
+#Using cross validation to tune the model 
+cv_lasso2 <- cv.glmnet(x2,y2,alpha=1,family = "gaussian", type.measure = "mse", nfolds = 10)
+
+plot(cv_lasso2)
+#Lambda that maximizes the AUC for this model 
+cv_lasso2$lambda.min
+
+#Extract coefficients
+coef_min2 <- coef(cv_lasso2, s = "lambda.min")
+coef_min2
+coef(cv_lasso2, s = "lambda.1se")
+
+#testing in the test set
+
+pred_lasso2 <- as.numeric(predict(lasso_model2, newx = model.matrix(Total_24hr_RBC ~.,working_cont)[-train_2,-1], s=cv_lasso2$lambda.1se, type = "response"))
+
+#calculating test MSE
+y_test <- working_cont$Total_24hr_RBC[-train_2]
+
+test_mse <- mean((y_test - pred_lasso2)^2)
+test_mse
+
+#calculating training MSE
+
+pred_lasso3 <- as.numeric(predict(lasso_model2, newx = x2, s = cv_lasso2$lambda.1se, type = "response"))
+
+training_MSE <- mean((y2 - pred_lasso3)^2)
+training_MSE
+
+#### Question 2 ####
+
+#' If "Total 24hr RBC" value was greater than 0, indicate it as 1 
+#' (for transfusion), if its 0, then indicate it as 0 (no transfusion).
+working_outcomes <- working %>%
+  mutate(
+    RBC_Transfusion = if_else(`Total 24hr RBC` > 0, 1, 0))
+# Convert to factor.
+working_outcomes$RBC_Transfusion <- as.factor(working_class$RBC_Transfusion)
+
+working_outcomes <- 
