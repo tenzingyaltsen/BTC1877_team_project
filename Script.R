@@ -165,14 +165,14 @@ for (var in names(working)) {
   }
 }
 
-# Variable Selection from Literature Review #
+#### Variable Selection from Literature Review ####
 working <- working[,-c(5,6,14,17,26)]
 
 #### Imputation of Variables with Missingness ####
 # Create table for variables with missingness.
 missing_variables <- c(15,21,29)
 imputation_table <- working %>%
-  select(all_of(missing_variables)) %>%
+  dplyr::select(all_of(missing_variables)) %>%
   summarise_all(~sum(is.na(.))) %>%
   pivot_longer(cols = everything(), names_to = "Variable", values_to = "Number_of_NAs") %>%
   mutate(Proportion_of_NAs = Number_of_NAs / nrow(working))
@@ -447,13 +447,48 @@ training_MSE <- mean((y2 - pred_lasso3)^2)
 training_MSE
 
 #### Question 2 ####
-
+# Create new data set.
 #' If "Total 24hr RBC" value was greater than 0, indicate it as 1 
 #' (for transfusion), if its 0, then indicate it as 0 (no transfusion).
 working_outcomes <- working %>%
   mutate(
     RBC_Transfusion = if_else(`Total 24hr RBC` > 0, 1, 0))
 # Convert to factor.
-working_outcomes$RBC_Transfusion <- as.factor(working_class$RBC_Transfusion)
+working_outcomes$RBC_Transfusion <- as.factor(working_outcomes$RBC_Transfusion)
+# Create time variable, for time to death in days.
+working_outcomes$time <- as.numeric(working_outcomes$DEATH_DATE - working_outcomes$`OR Date`)
+# Create status variable, to indicate death or censored.
+working_outcomes$status <- ifelse(!is.na(working_outcomes$DEATH_DATE),1,0)
 
-working_outcomes <- 
+library(survival)
+# Create survival fit.
+sf <- survfit(Surv(time, status==1) ~ 1, data=working_outcomes)
+print(sf)
+# Plot survival curves.
+plot(sf, xlab = "days from operation", ylab = "Survival")
+plot(sf, xscale = 365.25, xlab = "years from operation", ylab="Survival") 
+
+# Create stratified survival fit.
+sf2 <- survfit(Surv(time, status == 1) ~ RBC_Transfusion, data = working_outcomes)
+print(sf2)
+# Plot stratified survival curves.
+plot(sf2, xscale = 365.25, xlab = "years from operation", ylab="Survival", 
+     col= 1:2) 
+plot(sf2, xscale = 365.25, xlab = "years from operation", ylab="Survival", 
+     col=1:2, conf.int = 0.95) 
+legend("bottomright",legend = c("no transfusion", "transfusion"),lty = 1, col = 1:2)
+
+# We can also perform a Log-rank test to compare the two survival curves.
+# First, we need to check the PH assumption.
+# Typical stratified KM curve:
+plot(survfit(Surv(time, status==1) ~ RBC_Transfusion, 
+             data=working_outcomes), fun = "S")
+# There is no obvious deviation from the PH assumption.
+# Also, plot a cloglog plot against log(t).
+plot(survfit(Surv(time, status==1) ~ RBC_Transfusion, 
+             data = working_outcomes), fun = "cloglog")
+# Curves are parallel so PH seems to hold, the log-rank test is valid.
+
+# Perform the log rank test.
+survdiff(Surv(time, status==1) ~ RBC_Transfusion, data = working_outcomes)
+# We do not see strong evidence that the two curves are not identical.
