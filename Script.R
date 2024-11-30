@@ -14,6 +14,7 @@ install.packages("pROC")
 install.packages("tree")
 install.packages("survival")
 install.packages("car")
+install.packages("lubridate")
 library(readxl)
 library(funModeling)
 library(dplyr)
@@ -26,6 +27,7 @@ library(pROC)
 library(tree)
 library(survival)
 library(car)
+library(lubridate)
 
 # Import data.
 raw_data <- read_excel("transfusion_data.xlsx")
@@ -195,6 +197,22 @@ for (var in names(working)) {
     print(barchart)
   }
 }
+
+# Create histogram for date variables.
+# For OR Date.
+date_bins_1 <- floor_date(working$`OR Date`, unit = "month")
+ggplot(data = data.frame(working$`OR Date`), aes(x = date_bins)) +
+  geom_histogram(binwidth = 30, fill = "orange", color = "black") +
+  labs(title = "Distribution of OR Date", x = "Date", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+# For Death Date.
+date_bins_2 <- floor_date(working$DEATH_DATE , unit = "month")
+ggplot(data = data.frame(working$`DEATH_DATE`), aes(x = date_bins)) +
+  geom_histogram(binwidth = 30, fill = "orange", color = "black") +
+  labs(title = "Distribution of Death Date", x = "Date", y = "Frequency") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
 
 #### Imputation of Variables with Missingness ####
 # Create table for variables with missingness.
