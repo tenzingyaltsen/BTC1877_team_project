@@ -2,6 +2,9 @@ library(flextable)
 library(webshot2)
 library(htmltools)
 
+#### Massive Missingness ####
+Do this
+
 #### Numerical Variables ####
 # Note that "STUDY ID #" is removed.
 data <- data.frame(

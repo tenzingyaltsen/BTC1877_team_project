@@ -422,9 +422,9 @@ colnames(working_cont) <- gsub("[^A-Za-z0-9_]", "_", colnames(working_cont))
 
 #### Question 1: Create Full Lasso Regression Model ####
 
-# Create a matrix with predictor features for training set.
+# Create a matrix with predictor features for full data.
 xfull2 <- model.matrix(Total_24hr_RBC ~.,working_cont)[,-1]
-# Created a vector with response values for training set.
+# Created a vector with response values for full data.
 yfull2 <- working_cont$Total_24hr_RBC
 
 # Create lasso regression model, with gaussian family.
@@ -475,7 +475,7 @@ working_outcomes$RBC_Transfusion <- as.factor(working_outcomes$RBC_Transfusion)
 working_outcomes$time <- as.numeric(working_outcomes$DEATH_DATE - working_outcomes$`OR Date`)
 # Create status variable, to indicate death or censored.
 working_outcomes$status <- ifelse(!is.na(working_outcomes$DEATH_DATE),1,0)
-
+hist(working_outcomes$time)
 #### Question 2: Create Survival Curve ####
 # Create survival fit.
 sf <- survfit(Surv(time, status==1) ~ 1, data=working_outcomes)
@@ -733,7 +733,7 @@ abline(h = 0, col = "red")
 
 # Assess rule of thumb for overfitting.
 m <- nrow(working_outcomes)
-p <- m / 10
+p <- n / 10
 p
 #' All regression models in Question #2 have less than p degrees of 
 #' freedom.
