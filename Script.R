@@ -9,6 +9,11 @@ install.packages("tidyr")
 install.packages("ggplot2")
 install.packages("knitr")
 install.packages("mice")
+install.packages("glmnet")
+install.packages("pROC")
+install.packages("tree")
+install.packages("survival")
+install.packages("car")
 library(readxl)
 library(funModeling)
 library(dplyr)
@@ -16,6 +21,11 @@ library(tidyr)
 library(ggplot2)
 library(knitr)
 library(mice)
+library(glmnet)
+library(pROC) 
+library(tree)
+library(survival)
+library(car)
 
 # Import data.
 raw_data <- read_excel("transfusion_data.xlsx")
@@ -61,10 +71,22 @@ working$DEATH_DATE <- as.Date(working$DEATH_DATE, format = "%d-%b-%Y")
 working$`OR Date` <- as.Date(working$`OR Date`, format = "%d-%b-%Y")
 str(working)
 
+#### Variable Selection from Literature Review ####
+working <- working[,-c(5,6,14,17,26)]
+
+#### Remove Collinear Variables ####
+#'First_Lung_Transplant and Redo_Lung_Transplant are opposite
+#' (negative collinearity). Remove First_Lung_Transplant.
+working <- working[,-12]
+
+#'Removing intraoperative ECLS since it is collinear with ECLS_ECMO
+#' and ECLS_CPB.
+working <- working[,-21]
+
 #### EDA ####
 # Generate descriptive statistics for numeric variables.
 which(sapply(working, is.numeric))
-num_variables <- c(5:8,19:26,30:34,39:45)
+num_variables <- c(1,5,6,14,20,23:27,32:38)
 num_table <- working %>%
   summarise(across(all_of(num_variables), list(
     mean = ~mean(.x, na.rm = TRUE),
@@ -86,9 +108,9 @@ num_table %>%
 
 # Generate descriptive statistics for factor variables.
 which(sapply(working, is.factor))
-factor_variables <- c(3,36,37,38,46)
+factor_variables <- c(3,29:31,39)
 factor_table <- working %>%
-  select(all_of(factor_variables)) %>%  
+  dplyr::select(all_of(factor_variables)) %>%  
   pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
   group_by(variable, value) %>%
   summarise(n = n(), .groups = "drop") %>%
@@ -106,9 +128,9 @@ factor_table %>%
 
 # Generate descriptive statistics for logical variables.
 which(sapply(working, is.logical))
-logical_variables <- c(4,9:18,27:29)
+logical_variables <- c(4,7:13,21,22)
 logical_table <- working %>%
-  select(all_of(logical_variables)) %>%  
+  dplyr::select(all_of(logical_variables)) %>%  
   pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
   group_by(variable, value) %>%
   summarise(n = n(), .groups = "drop") %>%
@@ -126,9 +148,9 @@ logical_table %>%
 
 # Generate descriptive statistics (NAs) for date variables.
 which(sapply(working, inherits, "Date"))
-date_variables <- c(2,35)
+date_variables <- c(2,28)
 date_table <- working %>%
-  select(all_of(date_variables)) %>%  
+  dplyr::select(all_of(date_variables)) %>%  
   pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
   mutate(value = ifelse(is.na(value), "NA", "Not NA")) %>%  # Group values as "NA" or "Not NA"
   group_by(variable, value) %>%
@@ -148,29 +170,35 @@ date_table %>%
 #' Create histogram for each numerical variable and bar chart for each
 #' categorical variable in data set.
 for (var in names(working)) {
-  if (is.numeric(working[[var]]) && var != "Study ID #") {
+  if (is.numeric(working[[var]]) && length(unique(working[[var]])) < 135) {
     histogram <- ggplot(working, aes(x = .data[[var]])) +
-      geom_histogram(fill = "skyblue", binwidth = 2, na.rm = TRUE) +
-      labs(title = var, x = var, y = "Count") +
+      geom_histogram(fill = "skyblue", binwidth = 1, na.rm = TRUE,
+                     col = "black") +
+      labs(title = paste0("Distribution of ", var), x = var, y = "Count") +
+      theme_minimal() +
+      theme(plot.title = element_text(hjust = 0.5, size = 18))
+    print(histogram)
+  } else if (is.numeric(working[[var]])) {
+    histogram <- ggplot(working, aes(x = .data[[var]])) +
+      geom_histogram(fill = "skyblue", binwidth = 5, na.rm = TRUE,
+                     col = "black") +
+      labs(title = paste0("Distribution of ", var), x = var, y = "Count") +
       theme_minimal() +
       theme(plot.title = element_text(hjust = 0.5, size = 18))
     print(histogram)
   } else if (is.factor(working[[var]]) || is.logical(working[[var]])) {
     barchart <- ggplot(working, aes(x = .data[[var]])) +
-      geom_bar(fill = "salmon") +
-      labs(title = var, x = var, y = "Frequency") +
+      geom_bar(fill = "salmon", col = "black") +
+      labs(title = paste0("Distribution of ", var), x = var, y = "Frequency") +
       theme_minimal() +
       theme(plot.title = element_text(, hjust = 0.5, size = 18))
     print(barchart)
   }
 }
 
-#### Variable Selection from Literature Review ####
-working <- working[,-c(5,6,14,17,26)]
-
 #### Imputation of Variables with Missingness ####
 # Create table for variables with missingness.
-missing_variables <- c(15,21,29)
+missing_variables <- c(14,20,27)
 imputation_table <- working %>%
   dplyr::select(all_of(missing_variables)) %>%
   summarise_all(~sum(is.na(.))) %>%
@@ -182,7 +210,7 @@ imputation_table %>%
         col.names = c("Variable", "Number of NAs", "Proportion of NAs"))
 
 # Create imputation data set with dates removed, as they cannot used for predictions.
-impute_data <- working[,-c(2,30)]
+impute_data <- working[,-c(2,28)]
 # Replace spaces with underscores, not accepted by mice function.
 colnames(impute_data) <- gsub(" ", "_", colnames(impute_data))  
 # Remove non-alphanumeric characters, not accepted by mice function.
@@ -205,248 +233,218 @@ status(working)
 which(is.na(working$`Duration of ICU Stay (days)`))
 working <- working[-85,]
 
-#### Question 1 ####
-# Creating a new data set for classification.
-# Adding an "RBC Transfusion" column to the data frame:
-
-#If "Total 24hr RBC" value was greater than 0, indicate it as 1 (for transfusion), if its 0, then indicate it as 0 (no transfusion)
+#### Question 1: Data Set Creation and Cleaning ####
+# Create a new data set for classification called "working_class".
+#'Add a "RBC Transfusion" column to the data frame. If "Total 24hr 
+#' RBC" value is greater than 0, indicate it as 1 (for transfusion).
+#' If it is 0, then indicate it as 0 (no transfusion).
 working_class <- working %>%
-  mutate(
-    RBC_Transfusion = if_else(`Total 24hr RBC` > 0, 1, 0))
-
-#Converting the variable I just created to factor
+  mutate(RBC_Transfusion = if_else(`Total 24hr RBC` > 0, 1, 0))
+# Convert new response variable to factor.
 working_class$RBC_Transfusion <- as.factor(working_class$RBC_Transfusion)
 
-#Converting logical(TRUE/FALSE) to factors
+# Convert logical variables to factors for upcoming analyses.
 working_class <- working_class %>%
   mutate_if(is.logical, as.factor)
 
-#selecting the predictors were focusing on, including the outcome
+# Keep RBC transfusion outcome and predictors for RBC transfusion. 
 working_class <- working_class %>%
-  select(
-    RBC_Transfusion, Type, `Gender (male)`, Age, BMI, COPD,
+  select(RBC_Transfusion, Type, `Gender (male)`, Age, BMI, COPD,
     `alpha1-Antitrypsin Deficiency`, `Cystic Fibrosis`,
     `Idiopathic Pulmonary Hypertension`, `Interstitial Lung Disease`,
-    `First Lung Transplant`, `Redo Lung Transplant`, `Preoperative ECLS`,
-    `LAS score`, Pre_Hb, Pre_Hct, Pre_Platelets, Pre_PT, Pre_INR, Pre_PTT, ECLS_ECMO, ECLS_CPB
-  ) %>%
+    `Redo Lung Transplant`, `Preoperative ECLS`,
+    `LAS score`, Pre_Hb, Pre_Hct, Pre_Platelets, Pre_PT, Pre_INR, 
+    Pre_PTT, ECLS_ECMO, ECLS_CPB) %>%
+  # Replace spaces in variable names to underscores.
   rename_with(~ gsub(" ", "_", .x))
 
-#renaming potential problematic columns
+# Rename potential problematic columns, for ease of further analyses.
 working_class <- working_class %>%
   rename(alpha1_Antitrypsin_Deficiency = `alpha1-Antitrypsin_Deficiency`)
-
+# Replace non-alphanumeric characters in variable names with underscores.
 colnames(working_class) <- gsub("[^A-Za-z0-9_]", "_", colnames(working_class))
 
+#### Question 1: Compare Lasso Classification and Pruned Tree Models ####
+#'Make a loop to compare the performance of lasso classification 
+#' and pruned tree models over 5 different seeds (including the seed 
+#' above. This will help decide which model to use, by assessing and 
+#' comparing the models' performances via AUC. 
 
-library(glmnet)
-library(pROC) 
-library(tree) 
+# Make a data frame to store AUCs for each model for each iteration.
+auc_table <- data.frame(Iteration = integer(), AUC_LASSO = numeric(), AUC_Pruned_Tree = numeric())
 
-### Creating a LASSO model for classification ###
-
-set.seed(65)
-
-train_1 <- sample(nrow(working_class),round(nrow(working_class)/2))
-
-#created a vector with predictor features
-#excluded the first column as it corresponds to the intercept and it is always 1
-x1 <- model.matrix(RBC_Transfusion ~.,working_class)[train_1,-1]
-
-#created a vector with the response values
-y1 <- working_class$RBC_Transfusion[train_1]
-
-#creating lasso model, binomial family
-lasso_model1 <- glmnet(x1,y1,family="binomial")
-
-#plotting lambda vs coefficient weight plot 
-plot(lasso_model1,label = T, xvar = "lambda")
-
-#Using cross validation to tune the model 
-cv_lasso1 <- cv.glmnet(x1,y1,alpha=1,family = "binomial", type.measure = "auc", nfolds = 10)
-
-plot(cv_lasso1)
-#Lambda that maximizes the AUC for this model 
-cv_lasso1$lambda.min
-
-#Extract coefficients
-coef_min1 <- coef(cv_lasso1, s = "lambda.min")
-coef_min1
-coef(cv_lasso1, s = "lambda.1se")
-
-#testing in the test set
-
-pred_lasso1 <- as.numeric(predict(lasso_model1, newx = model.matrix(RBC_Transfusion ~.,working_class)[-train_1,-1], s=cv_lasso1$lambda.1se, type = "response"))
-
-
-
-#plotting the ROC curve
-myroc1 <- roc(RBC_Transfusion ~ pred_lasso1, data=working_class[-train_1,])
-
-plot(myroc1)
-
-# extracting the Area Under the Curve, a measure of discrimination
-auc.lasso1 <- myroc1$auc
-auc.lasso1
-
-
-#Making a loop to compare the performance of lasso and pruned tree models. This will help decide which model to go, by assessing and testing the models performances. 
-
-#Making a data frame to store AUC values for each model within each iteration
-auc_table <- data.frame(
-  Iteration = integer(),
-  AUC_LASSO = numeric(),
-  AUC_Pruned_Tree = numeric()
-)
-
-#Loop to repeat the process 5 times with different seeds set for each time
+#'Loop through 5 creations of lasso classification and pruned tree 
+#' models (different seed each time) and generate AUC for each, 
+#' saving into "auc_table". 
 for (i in 1:5) {
-  # Different seed for each iteration
-  set.seed(60 + i)
+  # Different seed for each iteration.
+  set.seed(10 + i)
+  # Split the data into training and test sets
+  train_data <- sample(nrow(working_class), 
+                       round(nrow(working_class) / 2))
   
-  #Splitting the data into training and test sets
-  train_data <- sample(nrow(working_class), round(nrow(working_class) / 2))
-  
-  # Creating predictor matrix and response vector for the LASSO model
-  x_train <- model.matrix(RBC_Transfusion ~ ., working_class)[train_data, -1]
+  # Create training set model matrix with predictors.
+  x_train <- model.matrix(
+    RBC_Transfusion ~ ., working_class)[train_data, -1]
+  # Create vector with training set response values.
   y_train <- working_class$RBC_Transfusion[train_data]
   
-  # LASSO model 
-  # Fitting the LASSO model
+  # Create in-loop lasso classification model.
   lasso_model <- glmnet(x_train, y_train, family = "binomial")
-  
-  # Cross-validation for lambda selection
-  cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1, family = "binomial", type.measure = "auc", nfolds = 10)
+  # Cross-validate model for lambda selection, 5 folds selected.
+  cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1, 
+                        family = "binomial", type.measure = "auc", 
+                        nfolds = 5)
   optimal_lambda <- cv_lasso$lambda.1se
+  # Can also try: 
+  # optimal_lambda <- cv_lasso$lambda.min
   
-  # Predict using the test set
-  pred_lasso <- predict(lasso_model, newx = model.matrix(RBC_Transfusion ~ ., working_class)[-train_data, -1], s = optimal_lambda, type = "response")
-  
-  # Calculating AUC for LASSO
-  roc_lasso <- roc(working_class$RBC_Transfusion[-train_data], as.numeric(pred_lasso))
+  # Create vector of predicted probabilities using the test set.
+  pred_lasso <- predict(
+    lasso_model, newx = model.matrix(
+      RBC_Transfusion ~ ., working_class)[-train_data, -1], 
+    s = optimal_lambda, type = "response")
+  # Calculating test set AUC for lasso classification model.
+  roc_lasso <- roc(working_class$RBC_Transfusion[-train_data], 
+                   as.numeric(pred_lasso))
+  # Assign AUC to "auc_lasso".
   auc_lasso <- roc_lasso$auc
   
-  # CART
-  # Making a classification tree
-  tree_model <- tree(RBC_Transfusion ~ ., data = working_class, subset = train_data)
-  
-  #Cross-validation for pruning
+  # Create in-loop classification tree using training set.
+  tree_model <- tree::tree(RBC_Transfusion ~ ., data = working_class, subset = train_data)
+  # Cross-validation for pruning of tree model.
   cv_res <- cv.tree(tree_model, FUN = prune.tree)
-  
-  #Determining the best size of the tree based on minimum deviance
+  # Determine the best size of the tree based on minimum deviance.
   best_size <- cv_res$size[which.min(cv_res$dev)]
-  
+  # If best size is 1, then make it 2. We don't want a trunk.
   best_size <- ifelse(
     best_size == 1, 2,
     best_size
   )
-  
-  # Prune the tree using the best size
+  # Prune the tree using the best size.
   pruned_tree <- prune.tree(tree_model, best = best_size)
-  
-  
-  
-  # Predicting on the test set for the pruned tree
-  preds_pruned <- predict(pruned_tree, newdata = working_class[-train_data, ], type = "vector")
+
+  # Create vector of predicted probabilities using the test set.
+  preds_pruned <- predict(pruned_tree, 
+                          newdata = working_class[-train_data, ], 
+                          type = "vector")
+  # Converts probabilities from matrix form to numerical vector.
   pred_probs_pruned <- as.numeric(preds_pruned[, 2])
-  
-  # Calculating AUC for pruned tree
+  # Calculate AUC for pruned tree.
   roc_pruned_tree <- roc(working_class$RBC_Transfusion[-train_data], pred_probs_pruned)
+  # Assign AUC to "auc_pruned_tree".
   auc_pruned_tree <- roc_pruned_tree$auc
   
-  # Updating the AUC values from each model to the table created earlier (outside the loop)
+  # Update the AUC values from each model to "auc_table".
   auc_table <- rbind(
     auc_table,
-    data.frame(
-      Iteration = i,
-      AUC_LASSO = auc_lasso,
-      AUC_Pruned_Tree = auc_pruned_tree
+    data.frame(Iteration = i, AUC_LASSO = auc_lasso, AUC_Pruned_Tree = auc_pruned_tree
     )
   )
 }
-
-# Printing result table with AUC values
+# Print table with AUC values from each model over five seeds.
 print(auc_table)
 
-#highest AUC value was for the AUC of the LASSO model at iteration 5 (seed = 15)
+#'Lasso classification models perform consistently better via measure
+#' of AUC. Highest AUC value was for the lasso model at iteration 5 
+#' (seed = 65).
 
+#### Question 1: Create Full Lasso Classification Model ####
 
+# Create matrix of predictor features using full data set.
+xfull1 <- model.matrix(RBC_Transfusion ~.,working_class)
+# Create a vector with the response values for the training set.
+yfull1 <- working_class$RBC_Transfusion
 
-#Part 2 of Question 1: We want to look at the amount of RBCs in transfusions
+# Create lasso classification model, with binomial family.
+lasso_model_full1 <- glmnet(xfull1, yfull1, family = "binomial")
+# Plot lambda against coefficient weights. 
+plot(lasso_model_full1,label = T, xvar = "lambda")
 
-#Converting logical(TRUE/FALSE) to factors
+# Use cross validation to tune the model. 5 folds specified.
+cv_lasso_full1 <- cv.glmnet(xfull1, yfull1, alpha = 1, family = "binomial", 
+                       type.measure = "auc", nfolds = 5)
+# Plot AUC for this model for different values of lambda.
+plot(cv_lasso_full1)
+# View lambda that maximizes the AUC for this model.
+cv_lasso_full1$lambda.min
+# Extract and view coefficients for minimum lambda and 1se lambda.
+coef_min_full1 <- coef(cv_lasso_full1, s = "lambda.min")
+coef_min_full1
+rownames(coef_min_full1)[coef_min_full1[,1] != 0][-1]
+coef_1se_full1 <- coef(cv_lasso_full1, s = "lambda.1se")
+coef_1se_full1
+rownames(coef_1se_full1)[coef_1se_full1[,1] != 0][-1]
+
+#### Question 1: Data Set Creation and Cleaning ####
+# Create a new data set for regression called "working_cont".
+
+# Convert logical variables to factors.
 working_cont <- working %>%
   mutate_if(is.logical, as.factor)
-
-#Response stays the same, we are using the same predictor set 
-#selecting the predictors were focusing on, including the outcome
+#'Response variable already present, and same predictor set as 
+#' previous part to be used.
+# Include only outcome and desired predictors.
 working_cont <- working_cont %>%
   select(
     `Total 24hr RBC`, Type, `Gender (male)`, Age, BMI, COPD,
     `alpha1-Antitrypsin Deficiency`, `Cystic Fibrosis`,
     `Idiopathic Pulmonary Hypertension`, `Interstitial Lung Disease`,
-    `First Lung Transplant`, `Redo Lung Transplant`, `Preoperative ECLS`,
+    `Redo Lung Transplant`, `Preoperative ECLS`,
     `LAS score`, Pre_Hb, Pre_Hct, Pre_Platelets, Pre_PT, Pre_INR, Pre_PTT, ECLS_ECMO, ECLS_CPB
   ) %>%
+  # Replace spaces in variable names with underscores.
   rename_with(~ gsub(" ", "_", .x))
 
-#renaming potential problematic columns
+# Rename potentially problematic column.
 working_cont <- working_cont %>%
   rename(alpha1_Antitrypsin_Deficiency = `alpha1-Antitrypsin_Deficiency`)
-
+# Replace non-alphanumeric characters in variable names with underscores.
 colnames(working_cont) <- gsub("[^A-Za-z0-9_]", "_", colnames(working_cont))
 
+#### Question 1: Create Full Lasso Regression Model ####
 
+# Create a matrix with predictor features for training set.
+xfull2 <- model.matrix(Total_24hr_RBC ~.,working_cont)[,-1]
+# Created a vector with response values for training set.
+yfull2 <- working_cont$Total_24hr_RBC
 
-### Creating Regression LASSO ###
+# Create lasso regression model, with gaussian family.
+lasso_model_full2 <- glmnet(xfull2, yfull2, family="gaussian")
+# Plot lambda values against coefficient weights. 
+plot(lasso_model_full2,label = T, xvar = "lambda")
 
-set.seed(65)
+# Cross-validate to tune model, nfolds of 5 specified. 
+cv_lasso_full2 <- cv.glmnet(xfull2, yfull2, alpha = 1, family = "gaussian", 
+                       type.measure = "mse", nfolds = 5)
+# Plot lambda values against corresponding AUC values.
+plot(cv_lasso_full2)
+# View lambda that maximizes the AUC for this model.
+cv_lasso_full2$lambda.min
 
-train_2 <- sample(nrow(working_cont),round(nrow(working_cont)/2))
+# Extract coefficients for model with minimum lambda.
+coef_min_full2 <- coef(cv_lasso_full2, s = "lambda.min")
+coef_min_full2
+rownames(coef_min_full2)[coef_min_full2[,1] != 0][-1]
+# Extract coefficients for model with 1se lambda.
+coef_1se_full2 <- coef(cv_lasso_full2, s = "lambda.1se")
+coef_1se_full2
+rownames(coef_1se_full2)[coef_1se_full2[,1] != 0][-1]
 
-#created a vector with predictor features
-#excluded the first column as it corresponds to the intercept and it is always 1
-x2 <- model.matrix(Total_24hr_RBC ~.,working_cont)[train_2,-1]
-
-#created a vector with the response values
-y2 <- working_cont$Total_24hr_RBC[train_2]
-
-#creating lasso model, binomial family
-lasso_model2 <- glmnet(x2,y2,family="gaussian")
-
-#plotting lambda vs coefficient weight plot 
-plot(lasso_model2,label = T, xvar = "lambda")
-
-#Using cross validation to tune the model 
-cv_lasso2 <- cv.glmnet(x2,y2,alpha=1,family = "gaussian", type.measure = "mse", nfolds = 10)
-
-plot(cv_lasso2)
-#Lambda that maximizes the AUC for this model 
-cv_lasso2$lambda.min
-
-#Extract coefficients
-coef_min2 <- coef(cv_lasso2, s = "lambda.min")
-coef_min2
-coef(cv_lasso2, s = "lambda.1se")
-
-#testing in the test set
-
-pred_lasso2 <- as.numeric(predict(lasso_model2, newx = model.matrix(Total_24hr_RBC ~.,working_cont)[-train_2,-1], s=cv_lasso2$lambda.1se, type = "response"))
-
-#calculating test MSE
-y_test <- working_cont$Total_24hr_RBC[-train_2]
-
-test_mse <- mean((y_test - pred_lasso2)^2)
+# Calculate full model MSE.
+pred_lasso_full <- as.numeric(predict(
+  lasso_model_full2, newx = xfull2, s = cv_lasso_full2$lambda.1se, 
+  type = "response"))
+test_mse <- mean((yfull2 - pred_lasso_full)^2)
 test_mse
 
-#calculating training MSE
+# Calculate null model MSE.
+null_mse <- mean((yfull2 - mean(yfull2))^2)
+null_mse
 
-pred_lasso3 <- as.numeric(predict(lasso_model2, newx = x2, s = cv_lasso2$lambda.1se, type = "response"))
+# Full model is better than null model in terms of MSE.
 
-training_MSE <- mean((y2 - pred_lasso3)^2)
-training_MSE
-
-#### Question 2 ####
+#### Question 2: Data Set Creation and Cleaning ####
 # Create new data set.
 #' If "Total 24hr RBC" value was greater than 0, indicate it as 1 
 #' (for transfusion), if its 0, then indicate it as 0 (no transfusion).
@@ -460,7 +458,7 @@ working_outcomes$time <- as.numeric(working_outcomes$DEATH_DATE - working_outcom
 # Create status variable, to indicate death or censored.
 working_outcomes$status <- ifelse(!is.na(working_outcomes$DEATH_DATE),1,0)
 
-library(survival)
+#### Question 2: Create Survival Curve ####
 # Create survival fit.
 sf <- survfit(Surv(time, status==1) ~ 1, data=working_outcomes)
 print(sf)
@@ -480,7 +478,7 @@ legend("bottomright",legend = c("no transfusion", "transfusion"),lty = 1, col = 
 
 # We can also perform a Log-rank test to compare the two survival curves.
 # First, we need to check the PH assumption.
-# Typical stratified KM curve:
+# Plot stratified KM curve for analysis:
 plot(survfit(Surv(time, status==1) ~ RBC_Transfusion, 
              data=working_outcomes), fun = "S")
 # There is no obvious deviation from the PH assumption.
@@ -492,3 +490,196 @@ plot(survfit(Surv(time, status==1) ~ RBC_Transfusion,
 # Perform the log rank test.
 survdiff(Surv(time, status==1) ~ RBC_Transfusion, data = working_outcomes)
 # We do not see strong evidence that the two curves are not identical.
+
+#### Question 2: Create Cox PH Model (RBC Transfusion) ####
+#'Create Cox PH model with RBC_Transfusion as main predictor. Other 
+#' predictors are being assessed as confounders.
+coxmod_full1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
+                `Gender (male)` + Age + BMI + COPD +
+                `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                `Idiopathic Pulmonary Hypertension` + 
+                  `Interstitial Lung Disease` + 
+                  `Redo Lung Transplant` + `Preoperative ECLS` +
+                `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                  Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + ECLS_CPB, 
+                data = working_outcomes)
+# Observe which predictors are significant.
+summary(coxmod_full1)
+# Create new model with significant variables as confounders.
+coxmod1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
+                   Age + COPD + `alpha1-Antitrypsin Deficiency` + 
+                   `Preoperative ECLS` + Pre_Hct + 
+                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                 data = working_outcomes)
+summary(coxmod1)
+# RBC Transfusion is significant!
+cox.zph(coxmod1)
+#'Pre_Hct violates PH assumption. This is an important variable so 
+#' it probably shouldn't be removed as a confounder. Lets try anyways.
+coxmod1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
+                   Age + COPD + `alpha1-Antitrypsin Deficiency` + 
+                   `Preoperative ECLS` + Pre_PT + Pre_INR + Pre_PTT + 
+                   ECLS_ECMO, 
+                 data = working_outcomes)
+summary(coxmod1)
+# RBC_Transfusion is no longer significant after removing Pre_Hct.
+cox.zph(coxmod1)
+# Cox PH is now met, but let's try the graphical check.
+plot(cox.zph(coxmod1),var=1) # Clear problem.
+plot(cox.zph(coxmod1),var=2) # Clear problem.
+plot(cox.zph(coxmod1),var=3) # Clear problem.
+# Try stratifying Pre_Hct.
+working_outcomes$Pre_Hct_stratified <- ifelse(working_outcomes$Pre_Hct >= 0.4, "high", "low")
+working_outcomes$Pre_Hct_stratified <- as.factor(working_outcomes$Pre_Hct_stratified)
+# Create new model, this time with Pre_Hct stratified.
+coxmod1_strat <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
+                   Age + COPD + `alpha1-Antitrypsin Deficiency` + 
+                   `Preoperative ECLS` + Pre_Hct_stratified + 
+                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                 data = working_outcomes)
+summary(coxmod1_strat)
+# RBC transfusion is not significant.
+cox.zph(coxmod1_strat)
+#'Global test still does not meet PH assumption. Trying to evaluate
+#' this predictor is tricky.
+
+#### Question 2: Create Cox PH Model (Total 24hr RBC) ####
+# Try the same thing but with "Total 24hr RBC" instead.
+#'Create Cox PH model with Total 24hr RBC as main predictor. Other 
+#' predictors are being assessed as confounders.
+coxmod_full2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
+                        `Gender (male)` + Age + BMI + COPD +
+                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                        `Idiopathic Pulmonary Hypertension` + 
+                        `Interstitial Lung Disease` + 
+                        `Redo Lung Transplant` + `Preoperative ECLS` +
+                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + ECLS_CPB, 
+                      data = working_outcomes)
+# Observe which predictors are significant.
+summary(coxmod_full2)
+# Create new model with significant variables as confounders.
+coxmod2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
+                   COPD + `Preoperative ECLS` + Pre_Hct + 
+                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                 data = working_outcomes)
+summary(coxmod2)
+# Total 24hr RBC is significant!
+cox.zph(coxmod2)
+# Proportional hazard assumption not met.
+#'Pre_Hct violates PH assumption. This is an important variable so 
+#' it probably shouldn't be removed as a confounder. Lets try anyways.
+coxmod2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
+                   COPD + `Preoperative ECLS` + 
+                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                 data = working_outcomes)
+summary(coxmod2)
+# Total 24hr RBC is significant!
+cox.zph(coxmod2)
+# Proportional hazard assumption met, but let's check graphical first.
+plot(cox.zph(coxmod2),var=1) # Clear problem.
+plot(cox.zph(coxmod2),var=2) # Clear problem.
+plot(cox.zph(coxmod2),var=3) # Clear problem.
+# Create new model, this time with Pre_Hct stratified.
+coxmod2_strat <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
+                   COPD + `Preoperative ECLS` + Pre_Hct_stratified + 
+                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                 data = working_outcomes)
+summary(coxmod2_strat)
+# Total 24hr RBC is significant!
+cox.zph(coxmod2_strat)
+# Proportional hazard assumption met, but let's check graphical first.
+plot(cox.zph(coxmod2_strat),var=1) # Potentially problematic.
+plot(cox.zph(coxmod2_strat),var=2) # Clear problem.
+plot(cox.zph(coxmod2_strat),var=3) # Clear problem.
+
+#### Question 2: Create Linear Regression (ICU LOS) ####
+# Full linear regression model with RBC Transfusion as predictor.
+icu_model_full1 <- lm(ICU_LOS ~ RBC_Transfusion + Type + 
+                        `Gender (male)` + Age + BMI + COPD +
+                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                        `Idiopathic Pulmonary Hypertension` + 
+                        `Interstitial Lung Disease` + 
+                        `Redo Lung Transplant` + `Preoperative ECLS` +
+                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + 
+                        ECLS_CPB, data = working_outcomes)
+# Find significant predictors to include as confounders in smaller model.
+summary(icu_model_full1)
+# Create smaller model with significant confounders.
+icu_model1 <- lm(ICU_LOS ~ RBC_Transfusion + BMI + `Preoperative ECLS` +
+                   `LAS score` + Pre_Hct + ECLS_ECMO, data = working_outcomes)
+# Assess perfect multicollinearity.
+vif(icu_model1)
+# Obtain coefficient for RBC Transfusion.
+summary(icu_model1)
+
+# Full linear regression model with Total 24hr RBC as predictor.
+icu_model_full2 <- lm(ICU_LOS ~ `Total 24hr RBC` + Type + 
+                        `Gender (male)` + Age + BMI + COPD +
+                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                        `Idiopathic Pulmonary Hypertension` + 
+                        `Interstitial Lung Disease` + 
+                        `Redo Lung Transplant` + `Preoperative ECLS` +
+                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + 
+                        ECLS_CPB, data = working_outcomes)
+# Find significant predictors to include as confounders in smaller model.
+summary(icu_model_full2)
+# Create smaller model with significant confounders.
+icu_model2 <- lm(ICU_LOS ~ `Total 24hr RBC` + BMI +
+                   `Redo Lung Transplant` + `LAS score`, 
+                 data = working_outcomes)
+# Assess perfect multicollinearity.
+vif(icu_model2)
+# Obtain coefficient for RBC Transfusion.
+summary(icu_model2)
+
+#### Question 2: Create Linear Regression (Hospital LOS) ####
+# Full linear regression model with RBC Transfusion as predictor.
+hospital_model_full1 <- lm(HOSPITAL_LOS ~ RBC_Transfusion + Type + 
+                       `Gender (male)` + Age + BMI + COPD +
+                       `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                       `Idiopathic Pulmonary Hypertension` + 
+                       `Interstitial Lung Disease` + 
+                       `Redo Lung Transplant` + `Preoperative ECLS` +
+                       `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                       Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + 
+                       ECLS_CPB, data = working_outcomes)
+# Find significant predictors to include as confounders in smaller model.
+summary(hospital_model_full1)
+# Create smaller model with significant confounders.
+hospital_model1 <- lm(HOSPITAL_LOS ~ RBC_Transfusion + COPD +
+                        `LAS score` + Pre_PTT, data = working_outcomes)
+# Assess perfect multicollinearity.
+vif(hospital_model1)
+# Obtain coefficient for RBC Transfusion.
+summary(hospital_model1)
+
+# Full linear regression model with Total 24hr RBC as predictor.
+hospital_model_full2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + Type + 
+                        `Gender (male)` + Age + BMI + COPD +
+                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                        `Idiopathic Pulmonary Hypertension` + 
+                        `Interstitial Lung Disease` + 
+                        `Redo Lung Transplant` + `Preoperative ECLS` +
+                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + 
+                        ECLS_CPB, data = working_outcomes)
+# Find significant predictors to include as confounders in smaller model.
+summary(hospital_model_full2)
+# Create smaller model with significant confounders.
+hospital_model2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + COPD + 
+                        `LAS score` + Pre_PTT, 
+                 data = working_outcomes)
+# Assess perfect multicollinearity.
+vif(hospital_model2)
+# Obtain coefficient for RBC Transfusion.
+summary(hospital_model2)
+
+# Assess rule of thumb for overfitting.
+m <- nrow(working_outcomes)
+p <- m / 10
+p
+#' All regression models in Question #2 have less than p degrees of 
+#' freedom.
