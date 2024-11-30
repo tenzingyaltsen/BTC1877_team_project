@@ -614,6 +614,15 @@ vif(icu_model1)
 # Obtain coefficient for RBC Transfusion.
 summary(icu_model1)
 
+# Examine residuals for heteroscedasticity.
+qqnorm(residuals(icu_model1), 
+       main = "Q-Q Plot of Residuals (ICU Model 1)")
+qqline(residuals(icu_model1), col = "red")
+plot(fitted(icu_model1), residuals(icu_model1), 
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs. Fitted Values (ICU Model 1")
+abline(h = 0, col = "red")
+
 # Full linear regression model with Total 24hr RBC as predictor.
 icu_model_full2 <- lm(ICU_LOS ~ `Total 24hr RBC` + Type + 
                         `Gender (male)` + Age + BMI + COPD +
@@ -634,6 +643,15 @@ icu_model2 <- lm(ICU_LOS ~ `Total 24hr RBC` + BMI +
 vif(icu_model2)
 # Obtain coefficient for RBC Transfusion.
 summary(icu_model2)
+
+# Examine residuals for heteroscedasticity.
+qqnorm(residuals(icu_model2), 
+       main = "Q-Q Plot of Residuals (ICU Model 2)")
+qqline(residuals(icu_model2), col = "red")
+plot(fitted(icu_model2), residuals(icu_model2), 
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs. Fitted Values (ICU Model 2")
+abline(h = 0, col = "red")
 
 #### Question 2: Create Linear Regression (Hospital LOS) ####
 # Full linear regression model with RBC Transfusion as predictor.
@@ -656,6 +674,15 @@ vif(hospital_model1)
 # Obtain coefficient for RBC Transfusion.
 summary(hospital_model1)
 
+# Examine residuals for heteroscedasticity.
+qqnorm(residuals(hospital_model1), 
+       main = "Q-Q Plot of Residuals (Hospital Model 1)")
+qqline(residuals(hospital_model1), col = "red")
+plot(fitted(hospital_model1), residuals(hospital_model1), 
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs. Fitted Values (Hospital Model 1")
+abline(h = 0, col = "red")
+
 # Full linear regression model with Total 24hr RBC as predictor.
 hospital_model_full2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + Type + 
                         `Gender (male)` + Age + BMI + COPD +
@@ -676,6 +703,15 @@ hospital_model2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + COPD +
 vif(hospital_model2)
 # Obtain coefficient for RBC Transfusion.
 summary(hospital_model2)
+
+# Examine residuals for heteroscedasticity.
+qqnorm(residuals(hospital_model2), 
+       main = "Q-Q Plot of Residuals (Hospital Model 2)")
+qqline(residuals(hospital_model2), col = "red")
+plot(fitted(hospital_model2), residuals(hospital_model2), 
+     xlab = "Fitted Values", ylab = "Residuals",
+     main = "Residuals vs. Fitted Values (Hospital Model 2")
+abline(h = 0, col = "red")
 
 # Assess rule of thumb for overfitting.
 m <- nrow(working_outcomes)
