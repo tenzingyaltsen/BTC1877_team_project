@@ -479,11 +479,10 @@ working_outcomes$time <- ifelse(is.na(working_outcomes$time), 365, working_outco
 working_outcomes$status <- ifelse(!is.na(working_outcomes$DEATH_DATE),1,0)
 
 #### Question 2: Create Survival Curve ####
-# Create survival fit.
+# Create non-stratified survival fit.
 sf <- survfit(Surv(time, status==1) ~ 1, data=working_outcomes)
 print(sf)
-
-# Plot survival curves.
+# Plot survival curve with confidence intervals.
 plot(sf, xlab = "Days From Operation", ylab = "Survival",
      main = "Survival Probability After Operation", cex.main = 0.8)
 plot(sf, xscale = 365.25, xlab = "Years From Operation", ylab="Survival",
@@ -511,6 +510,8 @@ plot(sf2, xlab = "Days from Operation", ylab="Survival",
      main = "Survival Probability After Operation", cex.main = 0.8) 
 legend("bottomright",legend = c("No Transfusion", "Transfusion"),
        lty = 1, col = 1:2, cex = 0.6)
+# Extract stratified survival probabilities at 1 year.
+summary(sf2,time = 365)
 
 # We can also perform a Log-rank test to compare the two survival curves.
 # First, we need to check the PH assumption.
@@ -518,6 +519,8 @@ legend("bottomright",legend = c("No Transfusion", "Transfusion"),
 plot(survfit(Surv(time, status==1) ~ RBC_Transfusion, 
              data=working_outcomes), fun = "S", col = 1:2,
      main = "Survival Probability After Operation", cex.main = 0.8)
+legend("bottomright",legend = c("No Transfusion", "Transfusion"),
+       lty = 1, col = 1:2, cex = 0.6)
 # There is no obvious deviation from the PH assumption before 1 year.
 # Also, plot a cloglog plot against log(t).
 plot(survfit(Surv(time, status==1) ~ RBC_Transfusion, 
@@ -525,6 +528,8 @@ plot(survfit(Surv(time, status==1) ~ RBC_Transfusion,
      xlab = "log(Days from Operation)", ylab = "log(Survival)",
      main = "log(Survival Probability) After Operation", cex.main = 0.8,
      col = 1:2)
+legend("bottomright",legend = c("No Transfusion", "Transfusion"),
+       lty = 1, col = 1:2, cex = 0.6)
 #'Curves are parallel except in post-year period. so PH seems to hold, 
 #' the log-rank test is valid.
 
@@ -535,7 +540,7 @@ survdiff(Surv(time, status==1) ~ RBC_Transfusion, data = working_outcomes)
 #### Question 2: Create Cox PH Model (RBC Transfusion) ####
 #'Create Cox PH model with RBC_Transfusion as main predictor. Other 
 #' predictors are being assessed as confounders.
-coxmod_full1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
+coxmod1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
                 `Gender (male)` + Age + BMI + COPD +
                 `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
                 `Idiopathic Pulmonary Hypertension` + 
@@ -544,33 +549,30 @@ coxmod_full1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type +
                 `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + ECLS_CPB, 
                 data = working_outcomes)
-# Some predictors perfectly predict survival. Remove.
-coxmod_full1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
+# Some predictors perfectly predict survival or are collinear. Remove.
+vif(coxmod1)
+coxmod1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
                         `Gender (male)` + Age + BMI + COPD +
                         `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
                         `Interstitial Lung Disease` + 
                         `Preoperative ECLS` +
                         `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
-                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                        Pre_INR + Pre_PTT + ECLS_ECMO, 
                       data = working_outcomes)
-
 # Observe which predictors are significant.
-summary(coxmod_full1)
-# Create new model with significant variables as confounders.
-coxmod1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion +
-                   Pre_PT + Pre_INR, 
-                 data = working_outcomes)
 summary(coxmod1)
 # RBC Transfusion is not significant.
 cox.zph(coxmod1)
-#'Global PH is significant even though predictors are not. Trying to 
-#' evaluate this predictor is tricky.
+# Proportional hazard assumption met, but let's check graphical first.
+plot(cox.zph(coxmod1),var=1) # Potentially a problem.
+plot(cox.zph(coxmod1),var=2) # Potentially a problem.
+plot(cox.zph(coxmod1),var=3) # Clear problem.
 
 #### Question 2: Create Cox PH Model (Total 24hr RBC) ####
 # Try the same thing but with "Total 24hr RBC" instead.
 #'Create Cox PH model with Total 24hr RBC as main predictor. Other 
 #' predictors are being assessed as confounders.
-coxmod_full2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
+coxmod2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
                         `Gender (male)` + Age + BMI + COPD +
                         `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
                         `Idiopathic Pulmonary Hypertension` + 
@@ -579,22 +581,17 @@ coxmod_full2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type +
                         `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
                         Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + ECLS_CPB, 
                       data = working_outcomes)
-# Some predictors perfectly predict survival. Remove.
-coxmod_full2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
+# Some predictors perfectly predict survival or are collinear. Remove.
+vif(coxmod2)
+coxmod2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
                         `Gender (male)` + Age + BMI + COPD +
                         `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
                         `Interstitial Lung Disease` + 
                         `Preoperative ECLS` +
                         `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
-                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                        Pre_INR + Pre_PTT + ECLS_ECMO, 
                       data = working_outcomes)
-
 # Observe which predictors are significant.
-summary(coxmod_full2)
-# Create new model with significant variables as confounders.
-coxmod2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + 
-                   `Preoperative ECLS` + Pre_PT + Pre_INR, 
-                 data = working_outcomes)
 summary(coxmod2)
 # Total 24hr RBC is not significant.
 cox.zph(coxmod2)
@@ -605,7 +602,7 @@ plot(cox.zph(coxmod2),var=3) # Clear problem.
 
 #### Question 2: Create Linear Regression (ICU LOS) ####
 # Full linear regression model with RBC Transfusion as predictor.
-icu_model_full1 <- lm(ICU_LOS ~ RBC_Transfusion + Type + 
+icu_model1 <- lm(ICU_LOS ~ RBC_Transfusion + Type + 
                         `Gender (male)` + Age + BMI + COPD +
                         `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
                         `Idiopathic Pulmonary Hypertension` + 
@@ -614,15 +611,21 @@ icu_model_full1 <- lm(ICU_LOS ~ RBC_Transfusion + Type +
                         `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
                         Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + 
                         ECLS_CPB, data = working_outcomes)
-# Find significant predictors to include as confounders in smaller model.
-summary(icu_model_full1)
-# Create smaller model with significant confounders.
-icu_model1 <- lm(ICU_LOS ~ RBC_Transfusion + BMI + `Preoperative ECLS` +
-                   `LAS score` + Pre_Hct + ECLS_ECMO, data = working_outcomes)
 # Assess perfect multicollinearity.
 vif(icu_model1)
-# Obtain coefficient for RBC Transfusion.
+# Remove perfectly multicollinear variable.
+icu_model1 <- lm(ICU_LOS ~ RBC_Transfusion + Type + 
+                   `Gender (male)` + Age + BMI + COPD +
+                   `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                   `Idiopathic Pulmonary Hypertension` + 
+                   `Interstitial Lung Disease` + 
+                   `Redo Lung Transplant` + `Preoperative ECLS` +
+                   `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                   Pre_INR + Pre_PTT + ECLS_ECMO + 
+                   ECLS_CPB, data = working_outcomes)
+# Find significant predictors.
 summary(icu_model1)
+# RBC Transfusion is not significant.
 
 # Examine residuals for heteroscedasticity.
 qqnorm(residuals(icu_model1), 
@@ -634,7 +637,7 @@ plot(fitted(icu_model1), residuals(icu_model1),
 abline(h = 0, col = "red")
 
 # Full linear regression model with Total 24hr RBC as predictor.
-icu_model_full2 <- lm(ICU_LOS ~ `Total 24hr RBC` + Type + 
+icu_model2 <- lm(ICU_LOS ~ `Total 24hr RBC` + Type + 
                         `Gender (male)` + Age + BMI + COPD +
                         `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
                         `Idiopathic Pulmonary Hypertension` + 
@@ -643,16 +646,21 @@ icu_model_full2 <- lm(ICU_LOS ~ `Total 24hr RBC` + Type +
                         `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
                         Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + 
                         ECLS_CPB, data = working_outcomes)
-# Find significant predictors to include as confounders in smaller model.
-summary(icu_model_full2)
-# Create smaller model with significant confounders.
-icu_model2 <- lm(ICU_LOS ~ `Total 24hr RBC` + BMI +
-                   `Redo Lung Transplant` + `LAS score`, 
-                 data = working_outcomes)
 # Assess perfect multicollinearity.
 vif(icu_model2)
-# Obtain coefficient for RBC Transfusion.
+# Remove perfectly multicollinear variable.
+icu_model2 <- lm(ICU_LOS ~ `Total 24hr RBC` + Type + 
+                   `Gender (male)` + Age + BMI + COPD +
+                   `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                   `Idiopathic Pulmonary Hypertension` + 
+                   `Interstitial Lung Disease` + 
+                   `Redo Lung Transplant` + `Preoperative ECLS` +
+                   `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                   Pre_INR + Pre_PTT + ECLS_ECMO + 
+                   ECLS_CPB, data = working_outcomes)
+# Find significant predictors.
 summary(icu_model2)
+# Total 24hr RBC is significant!
 
 # Examine residuals for heteroscedasticity.
 qqnorm(residuals(icu_model2), 
@@ -665,7 +673,7 @@ abline(h = 0, col = "red")
 
 #### Question 2: Create Linear Regression (Hospital LOS) ####
 # Full linear regression model with RBC Transfusion as predictor.
-hospital_model_full1 <- lm(HOSPITAL_LOS ~ RBC_Transfusion + Type + 
+hospital_model1 <- lm(HOSPITAL_LOS ~ RBC_Transfusion + Type + 
                        `Gender (male)` + Age + BMI + COPD +
                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
                        `Idiopathic Pulmonary Hypertension` + 
@@ -674,15 +682,21 @@ hospital_model_full1 <- lm(HOSPITAL_LOS ~ RBC_Transfusion + Type +
                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + 
                        ECLS_CPB, data = working_outcomes)
-# Find significant predictors to include as confounders in smaller model.
-summary(hospital_model_full1)
-# Create smaller model with significant confounders.
-hospital_model1 <- lm(HOSPITAL_LOS ~ RBC_Transfusion + COPD +
-                        `LAS score` + Pre_PTT, data = working_outcomes)
 # Assess perfect multicollinearity.
 vif(hospital_model1)
-# Obtain coefficient for RBC Transfusion.
+# Remove perfectly multicollinear variable.
+hospital_model1 <- lm(HOSPITAL_LOS ~ RBC_Transfusion + Type + 
+                        `Gender (male)` + Age + BMI + COPD +
+                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                        `Idiopathic Pulmonary Hypertension` + 
+                        `Interstitial Lung Disease` + 
+                        `Redo Lung Transplant` + `Preoperative ECLS` +
+                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                        Pre_INR + Pre_PTT + ECLS_ECMO + 
+                        ECLS_CPB, data = working_outcomes)
+# Find significant predictors.
 summary(hospital_model1)
+# RBC Transfusion is not significant.
 
 # Examine residuals for heteroscedasticity.
 qqnorm(residuals(hospital_model1), 
@@ -694,7 +708,7 @@ plot(fitted(hospital_model1), residuals(hospital_model1),
 abline(h = 0, col = "red")
 
 # Full linear regression model with Total 24hr RBC as predictor.
-hospital_model_full2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + Type + 
+hospital_model2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + Type + 
                         `Gender (male)` + Age + BMI + COPD +
                         `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
                         `Idiopathic Pulmonary Hypertension` + 
@@ -703,16 +717,21 @@ hospital_model_full2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + Type +
                         `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
                         Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + 
                         ECLS_CPB, data = working_outcomes)
-# Find significant predictors to include as confounders in smaller model.
-summary(hospital_model_full2)
-# Create smaller model with significant confounders.
-hospital_model2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + COPD + 
-                        `LAS score` + Pre_PTT, 
-                 data = working_outcomes)
 # Assess perfect multicollinearity.
 vif(hospital_model2)
-# Obtain coefficient for RBC Transfusion.
+# Remove perfectly multicollinear variable.
+hospital_model2 <- lm(HOSPITAL_LOS ~ `Total 24hr RBC` + Type + 
+                        `Gender (male)` + Age + BMI + COPD +
+                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                        `Idiopathic Pulmonary Hypertension` + 
+                        `Interstitial Lung Disease` + 
+                        `Redo Lung Transplant` + `Preoperative ECLS` +
+                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                        Pre_INR + Pre_PTT + ECLS_ECMO + 
+                        ECLS_CPB, data = working_outcomes)
+# Find significant predictors.
 summary(hospital_model2)
+# Total 24hr RBC is significant!
 
 # Examine residuals for heteroscedasticity.
 qqnorm(residuals(hospital_model2), 
