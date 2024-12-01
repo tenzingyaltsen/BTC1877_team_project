@@ -572,11 +572,11 @@ save_as_image(ft, "regression_summary_hospital_RBC_transfusion.png")
 
 #### Question 2: Regression Summary for Hospital LOS ~ Total 24hr RBC ####
 data <- data.frame(
-  Variable = c("(Intercept)", "`Total 24hr RBC`", "TypeSingle Left Lung", "TypeSingle Right Lung",
-               "`Gender (male)`TRUE", "Age", "BMI", "COPDTRUE", 
-               "`alpha1-Antitrypsin Deficiency`TRUE", "`Cystic Fibrosis`TRUE", 
-               "`Idiopathic Pulmonary Hypertension`TRUE", "`Interstitial Lung Disease`TRUE", 
-               "`Redo Lung Transplant`TRUE", "`Preoperative ECLS`TRUE", "`LAS score`", 
+  Variable = c("(Intercept)", "Total 24hr RBC", "TypeSingle Left Lung", "TypeSingle Right Lung",
+               "Gender (male)TRUE", "Age", "BMI", "COPDTRUE", 
+               "alpha1-Antitrypsin DeficiencyTRUE", "Cystic FibrosisTRUE", 
+               "Idiopathic Pulmonary HypertensionTRUE", "Interstitial Lung DiseaseTRUE", 
+               "Redo Lung TransplantTRUE", "Preoperative ECLSTRUE", "LAS score", 
                "Pre_Hb", "Pre_Hct", "Pre_Platelets", "Pre_INR", "Pre_PTT", 
                "ECLS_ECMOTRUE", "ECLS_CPBTRUE"),
   Estimate = c(17.80589, 1.69430, -7.12737, -13.25286,
