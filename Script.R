@@ -473,25 +473,33 @@ working_outcomes <- working %>%
 working_outcomes$RBC_Transfusion <- as.factor(working_outcomes$RBC_Transfusion)
 # Create time variable, for time to death in days.
 working_outcomes$time <- as.numeric(working_outcomes$DEATH_DATE - working_outcomes$`OR Date`)
+# Assign time as 365 for those patients that have not died by 1 year.
+working_outcomes$time <- ifelse(is.na(working_outcomes$time), 365, working_outcomes$time)
 # Create status variable, to indicate death or censored.
 working_outcomes$status <- ifelse(!is.na(working_outcomes$DEATH_DATE),1,0)
-hist(working_outcomes$time)
+
 #### Question 2: Create Survival Curve ####
 # Create survival fit.
 sf <- survfit(Surv(time, status==1) ~ 1, data=working_outcomes)
 print(sf)
 # Plot survival curves.
-plot(sf, xlab = "days from operation", ylab = "Survival")
-plot(sf, xscale = 365.25, xlab = "years from operation", ylab="Survival") 
+plot(sf, xlab = "Days From Operation", ylab = "Survival")
+plot(sf, xscale = 365.25, xlab = "Years From Operation", ylab="Survival") 
 
 # Create stratified survival fit.
 sf2 <- survfit(Surv(time, status == 1) ~ RBC_Transfusion, data = working_outcomes)
 print(sf2)
+
 # Plot stratified survival curves.
-plot(sf2, xscale = 365.25, xlab = "years from operation", ylab="Survival", 
+plot(sf2, xscale = 365.25, xlab = "Years from Operation", ylab="Survival", 
      col= 1:2) 
-plot(sf2, xscale = 365.25, xlab = "years from operation", ylab="Survival", 
+plot(sf2, xscale = 365.25, xlab = "Years from Operation", ylab="Survival", 
      col=1:2, conf.int = 0.95) 
+# Plot with scaled x and y-axes.
+plot(sf2, xscale = 365.25, xlab = "Years from Operation", ylab="Survival", 
+     col= 1:2, xlim = c(0,365), ylim = c(0.8,1)) 
+plot(sf2, xscale = 365.25, xlab = "Years from Operation", ylab="Survival", 
+     col=1:2, conf.int = 0.95, xlim = c(0,365), ylim = c(0.8,1)) 
 legend("bottomright",legend = c("no transfusion", "transfusion"),lty = 1, col = 1:2)
 
 # We can also perform a Log-rank test to compare the two survival curves.
@@ -503,7 +511,7 @@ plot(survfit(Surv(time, status==1) ~ RBC_Transfusion,
 # Also, plot a cloglog plot against log(t).
 plot(survfit(Surv(time, status==1) ~ RBC_Transfusion, 
              data = working_outcomes), fun = "cloglog")
-# Curves are parallel so PH seems to hold, the log-rank test is valid.
+# Curves are parallel except in post-year period. so PH seems to hold, the log-rank test is valid.
 
 # Perform the log rank test.
 survdiff(Surv(time, status==1) ~ RBC_Transfusion, data = working_outcomes)
@@ -521,45 +529,27 @@ coxmod_full1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type +
                 `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + ECLS_CPB, 
                 data = working_outcomes)
+# Some predictors perfectly predict survival. Remove.
+coxmod_full1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
+                        `Gender (male)` + Age + BMI + COPD +
+                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                        `Interstitial Lung Disease` + 
+                        `Preoperative ECLS` +
+                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                      data = working_outcomes)
+
 # Observe which predictors are significant.
 summary(coxmod_full1)
 # Create new model with significant variables as confounders.
-coxmod1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
-                   Age + COPD + `alpha1-Antitrypsin Deficiency` + 
-                   `Preoperative ECLS` + Pre_Hct + 
-                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+coxmod1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion +
+                   Pre_PT + Pre_INR, 
                  data = working_outcomes)
 summary(coxmod1)
-# RBC Transfusion is significant!
+# RBC Transfusion is not significant.
 cox.zph(coxmod1)
-#'Pre_Hct violates PH assumption. This is an important variable so 
-#' it probably shouldn't be removed as a confounder. Lets try anyways.
-coxmod1 <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
-                   Age + COPD + `alpha1-Antitrypsin Deficiency` + 
-                   `Preoperative ECLS` + Pre_PT + Pre_INR + Pre_PTT + 
-                   ECLS_ECMO, 
-                 data = working_outcomes)
-summary(coxmod1)
-# RBC_Transfusion is no longer significant after removing Pre_Hct.
-cox.zph(coxmod1)
-# Cox PH is now met, but let's try the graphical check.
-plot(cox.zph(coxmod1),var=1) # Clear problem.
-plot(cox.zph(coxmod1),var=2) # Clear problem.
-plot(cox.zph(coxmod1),var=3) # Clear problem.
-# Try stratifying Pre_Hct.
-working_outcomes$Pre_Hct_stratified <- ifelse(working_outcomes$Pre_Hct >= 0.4, "high", "low")
-working_outcomes$Pre_Hct_stratified <- as.factor(working_outcomes$Pre_Hct_stratified)
-# Create new model, this time with Pre_Hct stratified.
-coxmod1_strat <- coxph(Surv(time, status==1) ~ RBC_Transfusion + Type + 
-                   Age + COPD + `alpha1-Antitrypsin Deficiency` + 
-                   `Preoperative ECLS` + Pre_Hct_stratified + 
-                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
-                 data = working_outcomes)
-summary(coxmod1_strat)
-# RBC transfusion is not significant.
-cox.zph(coxmod1_strat)
-#'Global test still does not meet PH assumption. Trying to evaluate
-#' this predictor is tricky.
+#'Global PH is significant even though predictors are not. Trying to 
+#' evaluate this predictor is tricky.
 
 #### Question 2: Create Cox PH Model (Total 24hr RBC) ####
 # Try the same thing but with "Total 24hr RBC" instead.
@@ -574,42 +564,29 @@ coxmod_full2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type +
                         `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
                         Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO + ECLS_CPB, 
                       data = working_outcomes)
+# Some predictors perfectly predict survival. Remove.
+coxmod_full2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
+                        `Gender (male)` + Age + BMI + COPD +
+                        `alpha1-Antitrypsin Deficiency` + `Cystic Fibrosis` +
+                        `Interstitial Lung Disease` + 
+                        `Preoperative ECLS` +
+                        `LAS score` + Pre_Hb + Pre_Hct + Pre_Platelets + 
+                        Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+                      data = working_outcomes)
+
 # Observe which predictors are significant.
 summary(coxmod_full2)
 # Create new model with significant variables as confounders.
-coxmod2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
-                   COPD + `Preoperative ECLS` + Pre_Hct + 
-                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
+coxmod2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + 
+                   `Preoperative ECLS` + Pre_PT + Pre_INR, 
                  data = working_outcomes)
 summary(coxmod2)
-# Total 24hr RBC is significant!
-cox.zph(coxmod2)
-# Proportional hazard assumption not met.
-#'Pre_Hct violates PH assumption. This is an important variable so 
-#' it probably shouldn't be removed as a confounder. Lets try anyways.
-coxmod2 <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
-                   COPD + `Preoperative ECLS` + 
-                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
-                 data = working_outcomes)
-summary(coxmod2)
-# Total 24hr RBC is significant!
+# Total 24hr RBC is not significant.
 cox.zph(coxmod2)
 # Proportional hazard assumption met, but let's check graphical first.
-plot(cox.zph(coxmod2),var=1) # Clear problem.
+plot(cox.zph(coxmod2),var=1) # Potentially a problem.
 plot(cox.zph(coxmod2),var=2) # Clear problem.
 plot(cox.zph(coxmod2),var=3) # Clear problem.
-# Create new model, this time with Pre_Hct stratified.
-coxmod2_strat <- coxph(Surv(time, status==1) ~ `Total 24hr RBC` + Type + 
-                   COPD + `Preoperative ECLS` + Pre_Hct_stratified + 
-                   Pre_PT + Pre_INR + Pre_PTT + ECLS_ECMO, 
-                 data = working_outcomes)
-summary(coxmod2_strat)
-# Total 24hr RBC is significant!
-cox.zph(coxmod2_strat)
-# Proportional hazard assumption met, but let's check graphical first.
-plot(cox.zph(coxmod2_strat),var=1) # Potentially problematic.
-plot(cox.zph(coxmod2_strat),var=2) # Clear problem.
-plot(cox.zph(coxmod2_strat),var=3) # Clear problem.
 
 #### Question 2: Create Linear Regression (ICU LOS) ####
 # Full linear regression model with RBC Transfusion as predictor.
@@ -732,7 +709,7 @@ plot(fitted(hospital_model2), residuals(hospital_model2),
 abline(h = 0, col = "red")
 
 # Assess rule of thumb for overfitting.
-m <- nrow(working_outcomes)
+n <- nrow(working_outcomes)
 p <- n / 10
 p
 #' All regression models in Question #2 have less than p degrees of 
