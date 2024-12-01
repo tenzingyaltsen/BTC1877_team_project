@@ -482,36 +482,51 @@ working_outcomes$status <- ifelse(!is.na(working_outcomes$DEATH_DATE),1,0)
 # Create survival fit.
 sf <- survfit(Surv(time, status==1) ~ 1, data=working_outcomes)
 print(sf)
+
 # Plot survival curves.
-plot(sf, xlab = "Days From Operation", ylab = "Survival")
-plot(sf, xscale = 365.25, xlab = "Years From Operation", ylab="Survival") 
+plot(sf, xlab = "Days From Operation", ylab = "Survival",
+     main = "Survival Probability After Operation", cex.main = 0.8)
+plot(sf, xscale = 365.25, xlab = "Years From Operation", ylab="Survival",
+     main = "Survival Probability After Operation", cex.main = 0.8) 
 
 # Create stratified survival fit.
 sf2 <- survfit(Surv(time, status == 1) ~ RBC_Transfusion, data = working_outcomes)
 print(sf2)
 
 # Plot stratified survival curves.
-plot(sf2, xscale = 365.25, xlab = "Years from Operation", ylab="Survival", 
-     col= 1:2) 
-plot(sf2, xscale = 365.25, xlab = "Years from Operation", ylab="Survival", 
-     col=1:2, conf.int = 0.95) 
+plot(sf2, xlab = "Days from Operation", ylab="Survival", 
+     col= 1:2, main = "Survival Probability After Operation", 
+     cex.main = 0.8) 
+plot(sf2, xlab = "Days from Operation", ylab="Survival", 
+     col=1:2, conf.int = 0.95,
+     main = "Survival Probability After Operation", cex.main = 0.8) 
+legend("bottomright",legend = c("No Transfusion", "Transfusion"),
+       lty = 1, col = 1:2, cex = 0.6)
 # Plot with scaled x and y-axes.
-plot(sf2, xscale = 365.25, xlab = "Years from Operation", ylab="Survival", 
-     col= 1:2, xlim = c(0,365), ylim = c(0.8,1)) 
-plot(sf2, xscale = 365.25, xlab = "Years from Operation", ylab="Survival", 
-     col=1:2, conf.int = 0.95, xlim = c(0,365), ylim = c(0.8,1)) 
-legend("bottomright",legend = c("no transfusion", "transfusion"),lty = 1, col = 1:2)
+plot(sf2, xlab = "Days from Operation", ylab="Survival", 
+     col= 1:2, xlim = c(0,365), ylim = c(0.8,1),
+     main = "Survival Probability After Operation", cex.main = 0.8) 
+plot(sf2, xlab = "Days from Operation", ylab="Survival", 
+     col=1:2, conf.int = 0.95, xlim = c(0,365), ylim = c(0.8,1),
+     main = "Survival Probability After Operation", cex.main = 0.8) 
+legend("bottomright",legend = c("No Transfusion", "Transfusion"),
+       lty = 1, col = 1:2, cex = 0.6)
 
 # We can also perform a Log-rank test to compare the two survival curves.
 # First, we need to check the PH assumption.
 # Plot stratified KM curve for analysis:
 plot(survfit(Surv(time, status==1) ~ RBC_Transfusion, 
-             data=working_outcomes), fun = "S")
-# There is no obvious deviation from the PH assumption.
+             data=working_outcomes), fun = "S", col = 1:2,
+     main = "Survival Probability After Operation", cex.main = 0.8)
+# There is no obvious deviation from the PH assumption before 1 year.
 # Also, plot a cloglog plot against log(t).
 plot(survfit(Surv(time, status==1) ~ RBC_Transfusion, 
-             data = working_outcomes), fun = "cloglog")
-# Curves are parallel except in post-year period. so PH seems to hold, the log-rank test is valid.
+             data = working_outcomes), fun = "cloglog", 
+     xlab = "log(Days from Operation)", ylab = "log(Survival)",
+     main = "log(Survival Probability) After Operation", cex.main = 0.8,
+     col = 1:2)
+#'Curves are parallel except in post-year period. so PH seems to hold, 
+#' the log-rank test is valid.
 
 # Perform the log rank test.
 survdiff(Surv(time, status==1) ~ RBC_Transfusion, data = working_outcomes)
