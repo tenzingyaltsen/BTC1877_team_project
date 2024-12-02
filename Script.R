@@ -214,6 +214,69 @@ ggplot(data = data.frame(working$`DEATH_DATE`), aes(x = date_bins_2)) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5))
 
+#### Question 1. Characteristics of Patients that Require Transfusions ####
+#'Create data set of patients that required transfusion based on 
+#' Total 24hr RBC.
+working_char <- working %>%
+  mutate(RBC_Transfusion = if_else(`Total 24hr RBC` > 0, 1, 0))
+working_char <- working_char[which(working_char$RBC_Transfusion == 1),]
+
+# For numerical variables.
+num_table_char <- working_char %>%
+  summarise(across(all_of(num_variables), list(
+    mean = ~mean(.x, na.rm = TRUE),
+    median = ~median(.x, na.rm = TRUE),
+    sd = ~sd(.x, na.rm = TRUE),
+    min = ~min(.x, na.rm = TRUE),
+    max = ~max(.x, na.rm = TRUE),
+    iqr = ~IQR(.x, na.rm = TRUE)
+  ))) %>%
+  pivot_longer(everything(), names_to = c("Variable", ".value"), 
+               names_pattern = "(.*)_(.*)$")
+# Print table.
+num_table_char %>%
+  kable(
+    format = "markdown",  # Use "markdown" for plain text, "html" for R Markdown rendering
+    caption = "Summary Statistics for Numerical Variables",
+    digits = 2  # Number of decimal places
+  )
+
+# Generate descriptive statistics for factor variables.
+factor_table_char <- working_char %>%
+  dplyr::select(all_of(factor_variables)) %>%  
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+  group_by(variable, value) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(variable) %>%
+  mutate(proportion = n / sum(n))
+# Print table.
+factor_table_char %>%
+  arrange(variable, desc(n)) %>%  # Optional: Arrange by variable and count
+  kable(
+    format = "markdown",  # Use "markdown" for plain text, "html" for R Markdown
+    caption = "Summary of Factor Variables",
+    digits = 2,  # For proportion formatting
+    col.names = c("Variable", "Value", "Count", "Proportion")  # Rename columns
+  )
+
+# Generate descriptive statistics for logical variables.
+logical_table_char <- working_char %>%
+  dplyr::select(all_of(logical_variables)) %>%  
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+  group_by(variable, value) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(variable) %>%
+  mutate(proportion = n / sum(n))
+# Print table.
+logical_table_char %>%
+  arrange(variable, desc(n)) %>%  # Optional: Sort by variable and count
+  kable(
+    format = "markdown",  # Use "markdown" for plain text; "html" for R Markdown
+    caption = "Summary of Logical Variables",
+    digits = 2,  # Number of decimal places for proportions
+    col.names = c("Variable", "Value", "Count", "Proportion")  # Rename columns for clarity
+  )
+
 #### Imputation of Variables with Missingness ####
 # Create table for variables with missingness.
 missing_variables <- c(14,20,27)
@@ -633,7 +696,7 @@ qqnorm(residuals(icu_model1),
 qqline(residuals(icu_model1), col = "red")
 plot(fitted(icu_model1), residuals(icu_model1), 
      xlab = "Fitted Values", ylab = "Residuals",
-     main = "Residuals vs. Fitted Values (ICU Model 1")
+     main = "Residuals vs. Fitted Values (ICU Model 1)")
 abline(h = 0, col = "red")
 
 # Full linear regression model with Total 24hr RBC as predictor.
@@ -668,7 +731,7 @@ qqnorm(residuals(icu_model2),
 qqline(residuals(icu_model2), col = "red")
 plot(fitted(icu_model2), residuals(icu_model2), 
      xlab = "Fitted Values", ylab = "Residuals",
-     main = "Residuals vs. Fitted Values (ICU Model 2")
+     main = "Residuals vs. Fitted Values (ICU Model 2)")
 abline(h = 0, col = "red")
 
 #### Question 2: Create Linear Regression (Hospital LOS) ####
@@ -704,7 +767,7 @@ qqnorm(residuals(hospital_model1),
 qqline(residuals(hospital_model1), col = "red")
 plot(fitted(hospital_model1), residuals(hospital_model1), 
      xlab = "Fitted Values", ylab = "Residuals",
-     main = "Residuals vs. Fitted Values (Hospital Model 1")
+     main = "Residuals vs. Fitted Values (Hospital Model 1)")
 abline(h = 0, col = "red")
 
 # Full linear regression model with Total 24hr RBC as predictor.
@@ -739,7 +802,7 @@ qqnorm(residuals(hospital_model2),
 qqline(residuals(hospital_model2), col = "red")
 plot(fitted(hospital_model2), residuals(hospital_model2), 
      xlab = "Fitted Values", ylab = "Residuals",
-     main = "Residuals vs. Fitted Values (Hospital Model 2")
+     main = "Residuals vs. Fitted Values (Hospital Model 2)")
 abline(h = 0, col = "red")
 
 # Assess rule of thumb for overfitting.

@@ -218,6 +218,161 @@ ft <- flextable(na_summary) %>%
 # Export the table as an image
 save_as_image(ft, "imputation_variables.png")
 
+
+#### Question 1: Characteristics Tables ####
+# Numerical variables, note that "STUDY ID #" is removed.
+data <- data.frame(
+  Variable = c("Age", "BMI", "LAS score", "Pre_PTT",
+               "Intra_Fresh Frozen Plasma", "Intra_Packed Cells", "Intra_Platelets",
+               "Intra_Cryoprecipitate", "Duration of ICU Stay (days)", "ICU_LOS",
+               "HOSPITAL_LOS", "RBC 72hr Total", "FFP 72hr Total", "Plt 72hr Total",
+               "Cryo 72hr Total", "Total 24hr RBC"),
+  mean = c(53.73, 23.50, 38.39, 26.97, 1.04, 3.82, 0.70, 4.39, 8.22, 11.47, 37.50, 
+           1.21, 0.32, 0.19, 0.70, 4.50),
+  median = c(58.00, 23.85, 35.00, 24.80, 0.00, 3.00, 0.00, 0.00, 4.00, 4.56, 
+             25.54, 0.00, 0.00, 0.00, 0.00, 3.00),
+  sd = c(14.90, 4.16, 9.84, 9.56, 3.23, 4.93, 1.75, 9.12, 11.35, 36.68, 45.74, 
+         2.70, 1.26, 1.02, 3.45, 5.79),
+  min = c(21.00, 15.54, 24.00, 17.70, 0.00, 0.00, 0.00, 0.00, 1.00, 0.63, 11.08, 
+          0.00, 0.00, 0.00, 0.00, 1.00),
+  max = c(76.00, 31.78, 90.00, 93.50, 26.00, 36.00, 11.00, 50.00, 99.00, 380.86, 
+          381.52, 23.00, 8.00, 10.00, 30.00, 38.00),
+  iqr = c(24.00, 7.51, 8.00, 5.25, 0.00, 3.00, 0.00, 10.00, 6.00, 6.86, 19.77, 
+          1.00, 0.00, 0.00, 0.00, 3.00)
+)
+# Create a flextable.
+ft <- flextable(data) %>%
+  add_header_row(values = "Numerical Variables (Transfusion)", 
+                 colwidths = ncol(data)) %>%
+  set_header_labels(
+    Variable = "Variable",
+    mean = "Mean",
+    median = "Median",
+    sd = "Standard Deviation",
+    min = "Minimum",
+    max = "Maximum",
+    iqr = "Interquartile Range"
+  ) %>%
+  theme_vanilla() %>%
+  set_table_properties(width = 1, layout = "autofit") %>%
+  bg(bg = "white", part = "all")  
+# Save as an image.
+save_as_image(ft, path = "numerical_variables_char.png")
+
+# Factor variables.
+data <- data.frame(
+  Variable = c(
+    "ALIVE_12MTHS_YN", "ALIVE_12MTHS_YN",
+    "ALIVE_30DAYS_YN", "ALIVE_30DAYS_YN",
+    "ALIVE_90DAYS_YN", "ALIVE_90DAYS_YN",
+    "Massive Transfusion", "Massive Transfusion",
+    "Type", "Type", "Type"
+  ),
+  Value = c(
+    "Y", "N",
+    "Y", "N",
+    "Y", "N",
+    "0", "1",
+    "Bilateral", "Single Right Lung", "Single Left Lung"
+  ),
+  Count = c(
+    99, 15,
+    111, 3,
+    107, 7,
+    105, 9,
+    105, 5, 4
+  ),
+  Proportion = c(
+    0.87, 0.13,
+    0.97, 0.03,
+    0.94, 0.06,
+    0.92, 0.08,
+    0.92, 0.04, 0.04
+  )
+)
+# Create a flextable
+ft <- flextable(data) %>%
+  add_header_row(values = "Factor Variables (Transfusion)", 
+                 colwidths = ncol(data)) %>%
+  set_header_labels(
+    Variable = "Variable",
+    Value = "Value",
+    Count = "Count",
+    Proportion = "Proportion"
+  ) %>%
+  theme_vanilla() %>%  
+  set_table_properties(width = 1, layout = "autofit") %>%
+  bg(bg = "white", part = "all")  
+# Export the table as an image
+save_as_image(ft, path = "factor_variables_char.png")
+
+# Logical variables.
+data <- data.frame(
+  Variable = c(
+    "COPD", "COPD",
+    "Cystic Fibrosis", "Cystic Fibrosis",
+    "ECLS_CPB", "ECLS_CPB",
+    "ECLS_ECMO", "ECLS_ECMO",
+    "Gender (male)", "Gender (male)",
+    "Idiopathic Pulmonary Hypertension", "Idiopathic Pulmonary Hypertension",
+    "Interstitial Lung Disease", "Interstitial Lung Disease",
+    "Preoperative ECLS", "Preoperative ECLS",
+    "Redo Lung Transplant", "Redo Lung Transplant",
+    "alpha1-Antitrypsin Deficiency", "alpha1-Antitrypsin Deficiency"
+  ),
+  Value = c(
+    "FALSE", "TRUE",
+    "FALSE", "TRUE",
+    "FALSE", "TRUE",
+    "TRUE", "FALSE",
+    "FALSE", "TRUE",
+    "FALSE", "TRUE",
+    "FALSE", "TRUE",
+    "FALSE", "TRUE",
+    "FALSE", "TRUE",
+    "FALSE", "TRUE"
+  ),
+  Count = c(
+    91, 23,
+    89, 25,
+    112, 2,
+    77, 37,
+    64, 50,
+    110, 4,
+    57, 57,
+    107, 7,
+    104, 10,
+    109, 5
+  ),
+  Proportion = c(
+    0.80, 0.20,
+    0.78, 0.22,
+    0.98, 0.02,
+    0.68, 0.32,
+    0.56, 0.44,
+    0.96, 0.04,
+    0.50, 0.50,
+    0.94, 0.06,
+    0.91, 0.09,
+    0.96, 0.04
+  )
+)
+# Create a flextable
+ft <- flextable(data) %>%
+  add_header_row(values = "Logical Variables (Transfusion)", 
+                 colwidths = ncol(data)) %>%
+  set_header_labels(
+    Variable = "Variable",
+    Value = "Value",
+    Count = "Count",
+    Proportion = "Proportion"
+  ) %>%
+  theme_vanilla() %>%  
+  set_table_properties(width = 1, layout = "autofit") %>%
+  bg(bg = "white", part = "all")  
+# Export the table as an image
+save_as_image(ft, path = "logical_variables_char.png")
+
 #### Question 1: AUC Table ####
 data <- data.frame(
   Iteration = c(1, 2, 3, 4, 5),
